@@ -1,0 +1,8 @@
+diff --git a/BUILD b/BUILD
+--- a/BUILD
++++ b/BUILD
+@@ -28,3 +28,3 @@ config_setting(
+     name = "windows",
+-    constraint_values = ["@bazel_tools//platforms:windows"],
++    constraint_values = ["@platforms//os:windows"],
+ )

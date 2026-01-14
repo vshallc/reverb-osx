@@ -32,7 +32,11 @@ function build_wheel() {
   pushd ${TMPDIR} > /dev/null
 
   echo $(date) : "=== Building wheel"
-  "${PYTHON_BIN_PATH}" setup.py bdist_wheel ${PKG_NAME_FLAG} ${RELEASE_FLAG} ${TF_VERSION_FLAG} --plat manylinux2014_x86_64 > /dev/null
+  if [[ "$(uname)" == "Darwin" ]]; then
+    "${PYTHON_BIN_PATH}" setup.py bdist_wheel ${PKG_NAME_FLAG} ${RELEASE_FLAG} ${TF_VERSION_FLAG} > /dev/null
+  else
+    "${PYTHON_BIN_PATH}" setup.py bdist_wheel ${PKG_NAME_FLAG} ${RELEASE_FLAG} ${TF_VERSION_FLAG} --plat manylinux2014_x86_64 > /dev/null
+  fi
   DEST=${TMPDIR}/dist/
   if [[ ! "$TMPDIR" -ef "$DESTDIR" ]]; then
     mkdir -p ${DESTDIR}
@@ -54,10 +58,21 @@ function prepare_src() {
     exit 1
   fi
 
-  RUNFILES=bazel-bin/reverb/pip_package/build_pip_package.runfiles/reverb
+  RUNFILES=bazel-bin/reverb/pip_package/build_pip_package.runfiles/_main
 
   cp ${RUNFILES}/LICENSE ${TMPDIR}
   cp -L -R ${RUNFILES}/reverb ${TMPDIR}/reverb
+
+  # Copy Bazel solib tree into the python package so dlopen can find it at runtime.
+  if [ -d "${RUNFILES}/_solib_darwin_arm64" ]; then
+    mkdir -p "${TMPDIR}/reverb/_solib_darwin_arm64"
+    cp -L -R "${RUNFILES}/_solib_darwin_arm64/"* "${TMPDIR}/reverb/_solib_darwin_arm64/"
+  fi
+  # Make sure solib subdirs are treated consistently by packaging tools.
+  if [ -d "${TMPDIR}/reverb/_solib_darwin_arm64" ]; then
+    find "${TMPDIR}/reverb/_solib_darwin_arm64" -type d -exec sh -c 'test -f "$1/__init__.py" || : > "$1/__init__.py"' _ {} \;
+  fi
+
 
   mv ${TMPDIR}/reverb/pip_package/setup.py ${TMPDIR}
   mv ${TMPDIR}/reverb/pip_package/MANIFEST.in ${TMPDIR}
@@ -69,8 +84,46 @@ function prepare_src() {
   # TODO(b/155300149): Don't move .so files to the top-level directory.
   # This copies all .so files except for those found in the ops directory, which
   # must remain where they are for TF to find them.
-  find "${TMPDIR}/reverb/cc" -type d -name ops -prune -o -name '*.so' \
+  find "${TMPDIR}/reverb/cc" -type d -name ops -prune -o \( -name '*.so' -o -name '*.dylib' \) \
     -exec mv {} "${TMPDIR}/reverb" \;
+
+  # Fix Mach-O deps to point to the wheel layout under reverb/_solib_darwin_arm64.
+  # For each .so, rewrite any dep containing "_solib_darwin_arm64/" to the correct
+  # @loader_path/<relative>/_solib_darwin_arm64/... based on the .so location.
+  if command -v install_name_tool >/dev/null 2>&1; then
+    find "${TMPDIR}/reverb" -name "*.so" -print0 | while IFS= read -r -d '' so; do
+      so_dir="$(dirname "$so")"
+      # Compute relative path from so_dir to ${TMPDIR}/reverb
+      rel_to_reverb="$(python3 - <<PY
+import os
+print(os.path.relpath("${TMPDIR}/reverb", "${so_dir}"))
+PY
+)"
+      # Normalize "." -> ""
+      if [ "$rel_to_reverb" = "." ]; then rel_to_reverb=""; fi
+
+      otool -L "$so" | awk '{print $1}' | grep '_solib_darwin_arm64/' | while read -r dep; do
+        # Keep the tail starting from "_solib_darwin_arm64/..."
+        tail="${dep#*@loader_path/}"
+        tail="${tail#*/}"  # in case it was @loader_path/../...
+        # Extract suffix from first occurrence of _solib_darwin_arm64
+        suffix="$(echo "$dep" | sed -n 's#.*\(_solib_darwin_arm64/.*\)#\1#p')"
+        [ -z "$suffix" ] && continue
+
+        if [ -n "$rel_to_reverb" ]; then
+          newdep="@loader_path/${rel_to_reverb}/${suffix}"
+        else
+          newdep="@loader_path/${suffix}"
+        fi
+
+        if [ "$dep" != "$newdep" ]; then
+          echo "patching $so: $dep -> $newdep"
+          install_name_tool -change "$dep" "$newdep" "$so" || true
+        fi
+      done
+    done
+  fi
+
 }
 
 function usage() {

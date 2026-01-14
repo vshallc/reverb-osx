@@ -1,0 +1,11 @@
+diff --git a/gzguts.h b/gzguts.h
+--- a/gzguts.h
++++ b/gzguts.h
+@@ -25,6 +25,7 @@
+ #undef fdopen
+ #endif
+ 
++#include <unistd.h>
+ #include <stdio.h>
+ #include "zlib.h"
+ #ifdef STDC

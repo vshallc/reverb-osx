@@ -1,0 +1,15 @@
+diff --git a/bazel/build_defs.bzl b/bazel/build_defs.bzl
+--- a/bazel/build_defs.bzl
++++ b/bazel/build_defs.bzl
+@@ -19,10 +19,7 @@ UPB_DEFAULT_COPTS = select({
+     "//:fasttable_enabled_setting": ["-std=gnu99", "-DUPB_ENABLE_FASTTABLE"],
+     "//conditions:default": [
+         # copybara:strip_for_google3_begin
+-        "-std=c99",
+-        "-pedantic",
+-        "-Werror=pedantic",
+-        "-Wall",
++        "-std=c99",        "-Wall",
+         "-Wstrict-prototypes",
+         # GCC (at least) emits spurious warnings for this that cannot be fixed
+         # without introducing redundant initialization (with runtime cost):

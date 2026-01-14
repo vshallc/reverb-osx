@@ -88,7 +88,32 @@ def _find_python_solib_path(repo_ctx):
     if exec_result.return_code != 0:
         fail("Could not locate python shared library path:\n{}"
             .format(exec_result.stderr))
-    version = exec_result.stdout.splitlines()[-1]
+    version = exec_result.stdout.splitlines()[-1]  # e.g. python3.11
+
+    # macOS: prefer $prefix/lib/libpythonX.Y.dylib (conda / python.org)
+    if repo_ctx.os.name.lower().startswith("mac os") or repo_ctx.os.name.lower().startswith("darwin"):
+        exec_result = repo_ctx.execute(
+            ["{}-config".format(version), "--prefix"],
+            quiet = True,
+        )
+        if exec_result.return_code != 0:
+            fail("Could not locate python prefix:\n{}"
+                 .format(exec_result.stderr))
+        prefix = exec_result.stdout.splitlines()[-1]
+        solib_dir = "{}/lib".format(prefix)
+
+        basename = "lib{}.dylib".format(version)  # libpython3.11.dylib
+        full_path = repo_ctx.path("{}/{}".format(solib_dir, basename))
+        if not full_path.exists:
+            # fallback: some builds only have static libpython
+            basename = "lib{}.a".format(version)
+            full_path = repo_ctx.path("{}/{}".format(solib_dir, basename))
+            if not full_path.exists:
+                fail("Unable to find python library file:\n{}/(lib{}.dylib or lib{}.a)"
+                     .format(solib_dir, version, version))
+        return struct(dir = solib_dir, basename = basename)
+
+    # Linux (original behavior)
     basename = "lib{}.so".format(version)
     exec_result = repo_ctx.execute(
         ["{}-config".format(version), "--configdir"],
@@ -226,7 +251,10 @@ def _tensorflow_solib_repo_impl(repo_ctx):
         content = """
 cc_library(
     name = "framework_lib",
-    srcs = ["tensorflow_solib/libtensorflow_framework.so.2"],
+    srcs = select({
+        "@platforms//os:macos": ["tensorflow_solib/libtensorflow_framework.2.dylib"],
+        "//conditions:default": ["tensorflow_solib/libtensorflow_framework.so.2"],
+    }),
     deps = ["@python_includes", "@python_includes//:numpy_includes"],
     visibility = ["//visibility:public"],
 )
@@ -295,6 +323,14 @@ def cc_tf_configure():
         implementation = _python_includes_repo_impl,
     )
     make_python_inc_repo(name = "python_includes")
+
+def rules_cc_deps():
+    http_archive(
+        name = "rules_cc",
+        sha256 = "458b658277ba51b4730ea7a2020efdf1c6dcadf7d30de72e37f4308277fa8c01",
+        strip_prefix = "rules_cc-0.2.16",
+        url = "https://github.com/bazelbuild/rules_cc/releases/download/0.2.16/rules_cc-0.2.16.tar.gz",
+    )
 
 def python_deps():
     http_archive(
@@ -370,15 +406,34 @@ def absl_deps():
 
 def _protoc_archive(ctx):
     version = ctx.attr.version
-    sha256 = ctx.attr.sha256
+
+    os_name = ctx.os.name.lower()
+    arch = ctx.os.arch.lower()
+
+    if "mac" in os_name or "darwin" in os_name:
+        if "aarch64" in arch or "arm64" in arch:
+            pkg = "protoc-%s-osx-aarch_64.zip" % version
+            sha256 = ctx.attr.sha256_darwin_arm64
+        else:
+            pkg = "protoc-%s-osx-x86_64.zip" % version
+            sha256 = ctx.attr.sha256_darwin_x86_64
+    elif "linux" in os_name:
+        # protoc 官方包名一般是 linux-x86_64
+        pkg = "protoc-%s-linux-x86_64.zip" % version
+        sha256 = ctx.attr.sha256_linux_x86_64
+    else:
+        fail("Unsupported host OS for protoc: os=%s arch=%s" % (ctx.os.name, ctx.os.arch))
 
     urls = [
-        "https://github.com/protocolbuffers/protobuf/releases/download/v%s/protoc-%s-linux-x86_64.zip" % (version, version),
+        "https://github.com/protocolbuffers/protobuf/releases/download/v%s/%s" % (version, pkg),
     ]
     ctx.download_and_extract(
         url = urls,
         sha256 = sha256,
     )
+
+    # 有时 zip 解出来没执行位，这里顺手保证一下（不改也行，但建议加）
+    ctx.execute(["chmod", "+x", "bin/protoc"])
 
     ctx.file(
         "BUILD",
@@ -396,9 +451,18 @@ protoc_archive = repository_rule(
     implementation = _protoc_archive,
     attrs = {
         "version": attr.string(mandatory = True),
-        "sha256": attr.string(mandatory = True),
+        # 每个平台一个 sha256
+        "sha256_linux_x86_64": attr.string(default = ""),
+        "sha256_darwin_x86_64": attr.string(default = ""),
+        "sha256_darwin_arm64": attr.string(default = ""),
     },
 )
 
-def protoc_deps(version, sha256):
-    protoc_archive(name = "protobuf_protoc", version = version, sha256 = sha256)
+def protoc_deps(version, sha256_linux_x86_64 = "", sha256_darwin_x86_64 = "", sha256_darwin_arm64 = ""):
+    protoc_archive(
+        name = "protobuf_protoc",
+        version = version,
+        sha256_linux_x86_64 = sha256_linux_x86_64,
+        sha256_darwin_x86_64 = sha256_darwin_x86_64,
+        sha256_darwin_arm64 = sha256_darwin_arm64,
+    )

@@ -1,0 +1,15 @@
+diff --git a/zutil.h b/zutil.h
+--- a/zutil.h
++++ b/zutil.h
+@@ -145,5 +145,10 @@
+ #    else
+ #      ifndef fdopen
+-#        define fdopen(fd,mode) NULL /* No fdopen() */
++        /* On modern macOS SDKs, <stdio.h> declares fdopen() as a function.
++         * Defining fdopen as a macro breaks system headers.
++         */
++#        if !defined(__APPLE__)
++#          define fdopen(fd,mode) NULL /* No fdopen() */
++#        endif
+ #      endif
+ #    endif

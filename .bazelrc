@@ -4,25 +4,29 @@ build --define=grpc_no_ares=true
 # Suppress all warning messages.
 build:short_logs --output_filter=DONT_MATCH_ANYTHING
 
+########################################
 # Force python3
+########################################
 build --action_env=PYTHON_BIN_PATH=python3
 build --repo_env=PYTHON_BIN_PATH=python3
 build --python_path=python3
 
 build:manylinux2014 --crosstool_top=//third_party/toolchains/preconfig/ubuntu16.04/gcc7_manylinux2014:toolchain
+# We can remove this flag (we keep it explicit for now)
+build:manylinux2014 --cxxopt="-D_GLIBCXX_USE_CXX11_ABI=1"
+build:manylinux2014 --host_cxxopt="-D_GLIBCXX_USE_CXX11_ABI=1"
 
-build -c opt
+########################################
+# C++ flags (existing)
+########################################
 build --cxxopt="-std=c++17"
 build --host_cxxopt="-std=c++17"
 # We can remove this flag (we keep it explicit for now)
-build --cxxopt="-D_GLIBCXX_USE_CXX11_ABI=1"
-build --host_cxxopt="-D_GLIBCXX_USE_CXX11_ABI=1"
 build --auto_output_filter=subpackages
 build --copt="-Wall" --copt="-Wno-sign-compare"
-build --linkopt="-lrt -lm"
 # We build with AVX and eigen byte alignment to match tensorflow's (and Eigen)
 # pip package byte alignment.  See b/186669968 for more details.
-build --copt=-mavx --copt=-DEIGEN_MAX_ALIGN_BYTES=64
+build --copt=-DEIGEN_MAX_ALIGN_BYTES=64
 
 # TF isn't built in dbg mode, so our dbg builds will segfault due to inconsistency
 # of defines when using tf's headers.  In particular in refcount.h.
@@ -30,3 +34,16 @@ build --cxxopt="-DNDEBUG"
 
 # Options from ./configure
 try-import %workspace%/.reverb.bazelrc
+
+########################################
+# macOS deployment target (darwin only)
+########################################
+build:macos --action_env=MACOSX_DEPLOYMENT_TARGET=11.0
+build:macos --repo_env=MACOSX_DEPLOYMENT_TARGET=11.0
+
+build:macos --copt=-mmacosx-version-min=11.0
+build:macos --linkopt=-mmacosx-version-min=11.0
+build:macos --cxxopt=-mmacosx-version-min=11.0
+
+build:macos --macos_minimum_os=11.0
+build:macos --host_macos_minimum_os=11.0

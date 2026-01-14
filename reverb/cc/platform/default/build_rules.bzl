@@ -315,10 +315,14 @@ def reverb_gen_op_wrapper_py(name, out, kernel_lib, ops_lib = None, linkopts = [
             "-fvisibility=hidden",  # avoid symbol clashes between DSOs.
         ],
         linkshared = 1,
-        linkopts = linkopts + _rpath_linkopts(module_name) + [
-            "-Wl,--version-script",
-            "$(location %s)" % version_script_file,
-        ],
+        linkopts = linkopts + _rpath_linkopts(module_name) + select({
+            "@platforms//os:linux": [
+                "-Wl,--version-script",
+                "$(location %s)" % version_script_file,
+            ],
+            "@platforms//os:macos": [],
+            "//conditions:default": [],
+        }),
         **kwargs
     )
     native.genrule(
@@ -457,10 +461,14 @@ def reverb_pybind_extension(
             "-fexceptions",  # pybind relies on exceptions, required to compile.
             "-fvisibility=hidden",  # avoid pybind symbol clashes between DSOs.
         ],
-        linkopts = linkopts + _rpath_linkopts(module_name) + [
-            "-Wl,--version-script",
-            "$(location %s)" % version_script_file,
-        ],
+        linkopts = linkopts + _rpath_linkopts(module_name) + select({
+            "@platforms//os:linux": [
+                "-Wl,--version-script",
+                "$(location %s)" % version_script_file,
+            ],
+            "@platforms//os:macos": [],
+            "//conditions:default": [],
+        }),
         deps = depset(deps + [
             exported_symbols_file,
             version_script_file,

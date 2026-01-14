@@ -155,10 +155,10 @@ Table::Table(std::string name, std::shared_ptr<ItemSelector> sampler,
       num_unique_samples_(0),
       max_size_(max_size),
       max_enqueued_inserts_(
-          std::max(1L, std::min<int64_t>(max_size * kMaxEnqueuedInsertsPerc,
+          std::max(int64_t{1}, std::min<int64_t>(max_size * kMaxEnqueuedInsertsPerc,
                                          kMaxEnqueuedInserts))),
       max_enqueued_extension_ops_(
-          std::max(1L, std::min<int64_t>(max_size * kMaxPendingExtensionOpsPerc,
+          std::max(int64_t{1}, std::min<int64_t>(max_size * kMaxPendingExtensionOpsPerc,
                                          kMaxPendingExtensionOps))),
       max_times_sampled_(max_times_sampled),
       name_(std::move(name)),

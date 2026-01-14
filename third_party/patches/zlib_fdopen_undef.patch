@@ -1,0 +1,19 @@
+diff --git a/gzguts.h b/gzguts.h
+--- a/gzguts.h
++++ b/gzguts.h
+@@ -18,6 +18,15 @@
+ #  define ZLIB_INTERNAL
+ #endif
+
++/* On some platforms/configurations zutil.h defines fdopen as a macro
++ * (e.g. fdopen(fd,mode) -> NULL). This breaks system headers that declare
++ * fdopen() as a function (macOS SDK does), causing compilation errors.
++ * Ensure stdio.h sees the real identifier.
++ */
++#ifdef fdopen
++#undef fdopen
++#endif
++
+ #include <stdio.h>
+ #include "zlib.h"
+ #ifdef STDC
